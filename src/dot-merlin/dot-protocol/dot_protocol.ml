@@ -121,7 +121,7 @@ module Sexp = struct
     List (List.map ~f directives)
 end
 
-module Csexp = Dune_csexp.Csexp.Make (Sexp)
+module Csexp = Csexp.Make (Sexp)
 
 module Commands = struct
   type t = File of string | Halt | Unknown
