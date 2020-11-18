@@ -9,7 +9,11 @@ let ver =
     | "Caml1999I023" -> "407_0"
     | _ -> raise Not_found
   with Not_found ->
-    Scanf.sscanf J.ocaml_version "%s@.%s@." (fun maj min -> maj ^ min)
+    match
+      Scanf.sscanf J.ocaml_version "%s@.%s@.%d%s" (fun maj min _ var -> maj, min, var)
+    with
+      | maj, min, "+multicore" -> maj ^ min ^ "+multicore"
+      | maj, min, _ -> maj ^ min
 
 let load_path =
   let version = Scanf.sscanf J.ocaml_version "%d.%d." (fun ma mi -> ma, mi) in
