@@ -1325,6 +1325,24 @@ and transl_signature ?(keep_warnings = false) env sg =
             Msupport.raise_error exn;
             transl_sig env srem
           end
+        | Psig_effect seff ->
+            begin match
+              let (_, _) as res = Typedecl.transl_effect env seff in
+              res
+            with
+            | (ext, newenv) ->
+            (* XXX KC: Should we care about Shadowed? *)
+              let (trem, rem, final_env) = transl_sig newenv srem in
+              mksig (Tsig_effect ext) env loc :: trem,
+              Sig_typext(ext.ext_id,
+                         ext.ext_type,
+                         Text_effect,
+                         Exported) :: rem,
+              final_env
+          | exception exn ->
+            Msupport.raise_error exn;
+            transl_sig env srem
+            end
         | Psig_module pmd ->
           let scope = Ctype.create_scope () in
           begin match
@@ -2308,6 +2326,11 @@ and type_structure ?(toplevel = false) ?(keep_warnings = false) funct_body ancho
                     constructor.ext_type,
                     Text_exception,
                     Exported)],
+        newenv
+    | Pstr_effect seff ->
+        let (ext, newenv) = Typedecl.transl_effect env seff in
+        Tstr_effect ext,
+        [Sig_typext(ext.ext_id, ext.ext_type, Text_effect, Exported)],
         newenv
     | Pstr_module {pmb_name = name; pmb_expr = smodl; pmb_attributes = attrs;
                    pmb_loc;

@@ -118,6 +118,7 @@ let structure_item sub {str_desc; str_loc; str_env} =
         let (rec_flag, list) = sub.type_declarations sub (rec_flag, list) in
         Tstr_type (rec_flag, list)
     | Tstr_typext te -> Tstr_typext (sub.type_extension sub te)
+    | Tstr_effect ext -> Tstr_effect (sub.extension_constructor sub ext)
     | Tstr_exception ext -> Tstr_exception (sub.type_exception sub ext)
     | Tstr_module mb -> Tstr_module (sub.module_binding sub mb)
     | Tstr_recmodule list ->
@@ -251,16 +252,18 @@ let expr sub x =
           sub.expr sub exp,
           List.map (tuple2 id (Option.map (sub.expr sub))) list
         )
-    | Texp_match (exp, cases, p) ->
+    | Texp_match (exp, cases, eff_cases, p) ->
         Texp_match (
           sub.expr sub exp,
           sub.cases sub cases,
+          sub.cases sub eff_cases,
           p
         )
-    | Texp_try (exp, cases) ->
+    | Texp_try (exp, exn_cases, eff_cases) ->
         Texp_try (
           sub.expr sub exp,
-          sub.cases sub cases
+          sub.cases sub exn_cases,
+          sub.cases sub eff_cases
         )
     | Texp_tuple list ->
         Texp_tuple (List.map (sub.expr sub) list)
@@ -270,7 +273,7 @@ let expr sub x =
         Texp_variant (l, Option.map (sub.expr sub) expo)
     | Texp_record { fields; representation; extended_expression } ->
         let fields = Array.map (function
-            | label, Kept t -> label, Kept t
+            | label, Kept (t, mut) -> label, Kept (t, mut)
             | label, Overridden (lid, exp) ->
                 label, Overridden (lid, sub.expr sub exp))
             fields
@@ -401,6 +404,8 @@ let signature_item sub x =
         Tsig_typesubst list
     | Tsig_typext te ->
         Tsig_typext (sub.type_extension sub te)
+    | Tsig_effect ext ->
+        Tsig_effect (sub.extension_constructor sub ext)
     | Tsig_exception ext ->
         Tsig_exception (sub.type_exception sub ext)
     | Tsig_module x ->
@@ -681,11 +686,12 @@ let value_bindings sub (rec_flag, list) =
 let cases sub l =
   List.map (sub.case sub) l
 
-let case sub {c_lhs; c_guard; c_rhs} =
+let case sub {c_lhs; c_cont; c_guard; c_rhs} =
   {
     c_lhs = sub.pat sub c_lhs;
     c_guard = Option.map (sub.expr sub) c_guard;
     c_rhs = sub.expr sub c_rhs;
+    c_cont
   }
 
 let value_binding sub x =

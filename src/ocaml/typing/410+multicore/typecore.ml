@@ -108,6 +108,8 @@ type error =
   | No_value_clauses
   | Exception_pattern_disallowed
   | Mixed_value_and_exception_patterns_under_guard
+  | Effect_pattern_below_toplevel
+  | Invalid_continuation_pattern
   | Inlined_record_escape
   | Inlined_record_expected
   | Unrefuted_pattern of pattern
@@ -262,7 +264,7 @@ type recarg =
 let mk_expected ?explanation ty = { ty; explanation; }
 
 let case lhs rhs =
-  {c_lhs = lhs; c_guard = None; c_rhs = rhs}
+  {c_lhs = lhs; c_cont = None; c_guard = None; c_rhs = rhs}
 
 (* Typing of constants *)
 
@@ -1013,6 +1015,22 @@ let unify_head_only ~refine loc env ty constr =
 
 (* Typing of patterns *)
 
+(* Simplified patterns for effect continuations *)
+let type_continuation_pat env expected_ty sp =
+  let loc = sp.ppat_loc in
+  match sp.ppat_desc with
+  | Ppat_any -> None
+  | Ppat_var name ->
+      let id = Ident.create_local name.txt in
+      let desc =
+        { val_type = expected_ty; val_kind = Val_reg;
+          Types.val_loc = loc; val_attributes = []; }
+      in
+        Some (id, desc)
+  | Ppat_extension ext ->
+      raise (Error_forward (Builtin_attributes.error_of_extension ext))
+  | _ -> raise (Error (loc, env, Invalid_continuation_pattern))
+
 (* "half typed" cases are produced in [type_cases] when we've just typechecked
    the pattern but haven't type-checked the body yet.
    At this point we might have added some type equalities to the environment,
@@ -1051,6 +1069,7 @@ let rec has_literal_pattern p = match p.ppat_desc with
      List.exists has_literal_pattern ps
   | Ppat_record (ps, _) ->
      List.exists (fun (_,p) -> has_literal_pattern p) ps
+  | Ppat_effect (p, q)
   | Ppat_or (p, q) ->
      has_literal_pattern p || has_literal_pattern q
 
@@ -1723,6 +1742,8 @@ and type_pat_aux ~exception_allowed ~no_existentials ~mode
           pat_attributes = sp.ppat_attributes;
         })
       end
+  | Ppat_effect _ ->
+      raise (Error (loc, !env, Effect_pattern_below_toplevel))
   | Ppat_extension ext ->
       raise (Error_forward (Builtin_attributes.error_of_extension ext))
 
@@ -1902,9 +1923,9 @@ let rec final_subexpression exp =
   match exp.exp_desc with
     Texp_let (_, _, e)
   | Texp_sequence (_, e)
-  | Texp_try (e, _)
+  | Texp_try (e, _, _)
   | Texp_ifthenelse (_, e, _)
-  | Texp_match (_, {c_rhs=e} :: _, _)
+  | Texp_match (_, {c_rhs=e} :: _, _, _)
   | Texp_letmodule (_, _, _, _, e)
   | Texp_letexception (_, e)
   | Texp_open (_, e)
@@ -1925,7 +1946,7 @@ let rec is_nonexpansive exp =
       is_nonexpansive body
   | Texp_apply(e, (_,None)::el) ->
       is_nonexpansive e && List.for_all is_nonexpansive_opt (List.map snd el)
-  | Texp_match(e, cases, _) ->
+  | Texp_match(e, cases, _, _) ->
      (* Not sure this is necessary, if [e] is nonexpansive then we shouldn't
          care if there are exception patterns. But the previous version enforced
          that there be none, so... *)
@@ -2036,6 +2057,10 @@ and is_nonexpansive_mod mexp =
           | Tstr_exception {tyexn_constructor = {ext_kind = Text_decl _}} ->
               false (* true would be unsound *)
           | Tstr_exception {tyexn_constructor = {ext_kind = Text_rebind _}} ->
+              true
+          | Tstr_effect {ext_kind = Text_decl _} ->
+              false (* true would be unsound *)
+          | Tstr_effect {ext_kind = Text_rebind _} ->
               true
           | Tstr_typext te ->
               List.for_all
@@ -2207,10 +2232,13 @@ let check_partial_application statement exp =
             | Texp_extension_constructor _ | Texp_ifthenelse (_, _, None)
             | Texp_function _ ->
                 check_statement ()
-            | Texp_match (_, cases, _) ->
-                List.iter (fun {c_rhs; _} -> check c_rhs) cases
-            | Texp_try (e, cases) ->
-                check e; List.iter (fun {c_rhs; _} -> check c_rhs) cases
+            | Texp_match (_, cases, eff_cases, _) ->
+                List.iter (fun {c_rhs; _} -> check c_rhs) cases;
+                List.iter (fun {c_rhs; _} -> check c_rhs) eff_cases
+            | Texp_try (e, cases, eff_cases) ->
+                check e;
+                List.iter (fun {c_rhs; _} -> check c_rhs) cases;
+                List.iter (fun {c_rhs; _} -> check c_rhs) eff_cases
             | Texp_ifthenelse (_, e1, Some e2) ->
                 check e1; check e2
             | Texp_let (_, _, e) | Texp_sequence (_, e) | Texp_open (_, e)
@@ -2296,7 +2324,7 @@ let shallow_iter_ppat f p =
   | Ppat_extension _
   | Ppat_type _ | Ppat_unpack _ -> ()
   | Ppat_array pats -> List.iter f pats
-  | Ppat_or (p1,p2) -> f p1; f p2
+  | Ppat_or (p1,p2) | Ppat_effect(p1, p2) -> f p1; f p2
   | Ppat_variant (_, arg) | Ppat_construct (_, arg) -> Option.iter f arg
   | Ppat_tuple lst ->  List.iter f lst
   | Ppat_exception p | Ppat_alias (p,_)
@@ -2637,22 +2665,54 @@ and type_expect_
       end_def ();
       if maybe_expansive arg then lower_contravariant env arg.exp_type;
       generalize arg.exp_type;
-      let cases, partial =
-        type_cases ~exception_allowed:true env arg.exp_type ty_expected true loc
-          caselist
+      let rec split_cases valc effc conts = function
+        | [] -> List.rev valc, List.rev effc, List.rev conts
+        | {pc_lhs = {ppat_desc=Ppat_effect(p1, p2)}} as c :: rest ->
+            split_cases valc
+              (({c with pc_lhs = p1}) :: effc) (p2 :: conts) rest
+        | c :: rest ->
+            split_cases (c :: valc) effc conts rest
+      in
+      let val_caselist, eff_caselist, eff_conts =
+        split_cases [] [] [] caselist
+      in
+      if val_caselist = [] && eff_caselist <> [] then
+        raise (Error (loc, env, No_value_clauses));
+      let val_cases, partial =
+        type_cases ~exception_allowed:true env arg.exp_type ty_expected true loc val_caselist in
+      let eff_cases =
+        match eff_caselist with
+        | [] -> []
+        | eff_caselist ->
+            type_effect_cases ~exception_allowed:false env ty_expected loc eff_caselist eff_conts
       in
       re {
-        exp_desc = Texp_match(arg, cases, partial);
+        exp_desc = Texp_match(arg, val_cases, eff_cases, partial);
         exp_loc = loc; exp_extra = [];
         exp_type = instance ty_expected;
         exp_attributes = sexp.pexp_attributes;
         exp_env = env }
   | Pexp_try(sbody, caselist) ->
       let body = type_expect env sbody ty_expected_explained in
-      let cases, _ =
-        type_cases env Predef.type_exn ty_expected false loc caselist in
+      let rec split_cases exnc effc conts = function
+        | [] -> List.rev exnc, List.rev effc, List.rev conts
+        | {pc_lhs = {ppat_desc=Ppat_effect(p1, p2)}} as c :: rest ->
+            split_cases exnc
+              (({c with pc_lhs = p1}) :: effc) (p2 :: conts) rest
+        | c :: rest ->
+            split_cases (c :: exnc) effc conts rest
+      in
+      let exn_caselist, eff_caselist, eff_conts = split_cases [] [] [] caselist in
+      let exn_cases, _ =
+        type_cases env Predef.type_exn ty_expected false loc exn_caselist in
+      let eff_cases =
+        match eff_caselist with
+        | [] -> []
+        | eff_caselist ->
+            type_effect_cases ~exception_allowed:false env ty_expected loc eff_caselist eff_conts
+      in
       re {
-        exp_desc = Texp_try(body, cases);
+        exp_desc = Texp_try(body, exn_cases, eff_cases);
         exp_loc = loc; exp_extra = [];
         exp_type = body.exp_type;
         exp_attributes = sexp.pexp_attributes;
@@ -2820,7 +2880,7 @@ and type_expect_
                   unify_exp_types loc env ty_arg1 ty_arg2;
                   with_explanation (fun () ->
                     unify_exp_types loc env (instance ty_expected) ty_res2);
-                  Kept ty_arg1
+                  Kept (ty_arg1, lbl.lbl_mut)
                 end
             in
             let label_definitions = Array.map unify_kept lbl.lbl_all in
@@ -4431,8 +4491,8 @@ and type_statement ?explanation env sexp =
   end
 
 (* Typing of match cases *)
-and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
-      loc caselist =
+and type_cases ?exception_allowed ?in_function env ty_arg ty_res
+      ?conts partial_flag loc caselist =
   let has_errors = Msupport.monitor_errors () in
   (* ty_arg is _fully_ generalized *)
   let patterns = List.map (fun {pc_lhs=p} -> p) caselist in
@@ -4540,11 +4600,17 @@ and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
   ) half_typed_cases;
   (* type bodies *)
   let in_function = if List.length caselist = 1 then in_function else None in
+  let half_typed_cases_cont_list =
+    match conts with
+    | None -> List.map (fun x -> (x, None)) half_typed_cases
+    | Some conts ->
+        List.map2 (fun x cont -> (x, cont)) half_typed_cases conts
+  in
   let cases =
     List.map
-      (fun { typed_pat = pat; branch_env = ext_env; pat_vars = pvs; unpacks;
+      (fun ({ typed_pat = pat; branch_env = ext_env; pat_vars = pvs; unpacks;
              untyped_case = {pc_lhs = _; pc_guard; pc_rhs};
-             contains_gadt; _ }  ->
+             contains_gadt; _ }, cont)  ->
         let ext_env =
           if contains_gadt then
             do_copy_types ext_env
@@ -4555,6 +4621,16 @@ and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
           add_pattern_variables ext_env pvs
             ~check:(fun s -> Warnings.Unused_var_strict s)
             ~check_as:(fun s -> Warnings.Unused_var s)
+        in
+        let cont, ext_env' =
+          match cont with
+          | Some (id, desc) ->
+              let ext_env =
+                Env.add_value ~check:(fun s -> Warnings.Unused_var_strict s)
+                  id desc ext_env
+              in
+                Some id, ext_env
+          | None -> None, ext_env
         in
         let sexp = wrap_unpacks pc_rhs unpacks in
         let ty_res' =
@@ -4577,19 +4653,26 @@ and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
           match pc_guard with
           | None -> None
           | Some scond ->
-              Some
+             (* It is crucial that the continuation is not used in the
+                `when' expression as the extent of the continuation is
+                yet to be determined. We make the continuation
+                inaccessible by typing the `when' expression using the
+                environment `ext_env' which does not bind the
+                continuation variable. *)
+             Some
                 (type_expect ext_env (wrap_unpacks scond unpacks)
                    (mk_expected ~explanation:When_guard Predef.type_bool))
         in
         let exp =
-          type_expect ?in_function ext_env sexp (mk_expected ty_res') in
+          type_expect ?in_function ext_env' sexp (mk_expected ty_res') in
         {
          c_lhs = pat;
+         c_cont = cont;
          c_guard = guard;
          c_rhs = {exp with exp_type = instance ty_res'}
         }
       )
-      half_typed_cases
+      half_typed_cases_cont_list
   in
   if !Clflags.principal || does_contain_gadt then begin
     let ty_res' = instance ty_res in
@@ -4635,6 +4718,38 @@ and type_cases ?exception_allowed ?in_function env ty_arg ty_res partial_flag
     unify_exp_types loc env (instance ty_res) (newvar ()) ;
   end;
   cases, partial
+
+and type_effect_cases ~exception_allowed env ty_res loc caselist conts =
+  let _ = newvar () in
+  (* remember original level *)
+  begin_def ();
+  (* Create a fake abstract type declaration for effect type. *)
+  let decl = {
+    type_params = [];
+    type_arity = 0;
+    type_kind = Type_abstract;
+    type_private = Public;
+    type_manifest = None;
+    type_variance = [];
+    type_is_newtype = true;
+    type_expansion_scope = Btype.lowest_level;
+    type_loc = loc;
+    type_attributes = [];
+    type_immediate = Unknown;
+    type_unboxed = unboxed_false_default_false;
+  }
+  in
+  let name = Ctype.get_new_abstract_name "effect" in
+  let scope = create_scope () in
+  let id = Ident.create_scoped ~scope name in
+  let new_env = Env.add_type ~check:false id decl env in
+  let ty_eff = newgenty (Tconstr (Path.Pident id,[],ref Mnil)) in
+  let ty_arg = Predef.type_eff ty_eff in
+  let ty_cont = Predef.type_continuation ty_eff ty_res in
+  let conts = List.map (type_continuation_pat env ty_cont) conts in
+  let cases, _ = type_cases ~exception_allowed new_env ty_arg ty_res ~conts false loc caselist in
+  end_def ();
+  cases
 
 (* Typing of let bindings *)
 
@@ -5344,6 +5459,12 @@ let report_error ~loc env = function
       Location.errorf ~loc
         "@[Mixing value and exception patterns under when-guards is not \
          supported.@]"
+  | Effect_pattern_below_toplevel ->
+      Location.errorf ~loc
+        "@[Effect patterns must be at the top level of a match case.@]"
+  | Invalid_continuation_pattern ->
+      Location.errorf ~loc
+        "@[Invalid continuation pattern: only variables and _ are allowed .@]"
   | Inlined_record_escape ->
       Location.errorf ~loc
         "@[This form is not allowed as the type of the inlined record could \

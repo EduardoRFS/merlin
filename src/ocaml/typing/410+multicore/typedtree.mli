@@ -169,17 +169,22 @@ and expression_desc =
                          (Labelled "y", Some (Texp_constant Const_int 3))
                         ])
          *)
-  | Texp_match of expression * case list * partial
+  | Texp_match of expression * case list * case list * partial
         (** match E0 with
             | P1 -> E1
             | P2 | exception P3 -> E2
             | exception P4 -> E3
 
             [Texp_match (E0, [(P1, E1); (P2 | exception P3, E2);
-                              (exception P4, E3)], _)]
+                              (exception P4, E3)], [(P4, E4)],  _)]
          *)
-  | Texp_try of expression * case list
-        (** try E with P1 -> E1 | ... | PN -> EN *)
+  | Texp_try of expression * case list * case list
+        (** try E with
+            | P1 -> E1
+            | effect P2 k -> E2
+
+            [Texp_try (E, [(P1, E1)], [(P2, E2)])]
+          *)
   | Texp_tuple of expression list
         (** (E1, ..., EN) *)
   | Texp_construct of
@@ -247,12 +252,13 @@ and meth =
 and case =
     {
      c_lhs: pattern;
+     c_cont: Ident.t option;
      c_guard: expression option;
      c_rhs: expression;
     }
 
 and record_label_definition =
-  | Kept of Types.type_expr
+  | Kept of Types.type_expr * mutable_flag
   | Overridden of Longident.t loc * expression
 
 and binding_op =
@@ -373,6 +379,7 @@ and structure_item_desc =
   | Tstr_primitive of value_description
   | Tstr_type of rec_flag * type_declaration list
   | Tstr_typext of type_extension
+  | Tstr_effect of extension_constructor
   | Tstr_exception of type_exception
   | Tstr_module of module_binding
   | Tstr_recmodule of module_binding list
@@ -449,6 +456,7 @@ and signature_item_desc =
   | Tsig_type of rec_flag * type_declaration list
   | Tsig_typesubst of type_declaration list
   | Tsig_typext of type_extension
+  | Tsig_effect of extension_constructor
   | Tsig_exception of type_exception
   | Tsig_module of module_declaration
   | Tsig_modsubst of module_substitution

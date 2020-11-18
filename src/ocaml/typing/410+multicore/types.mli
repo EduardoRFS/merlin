@@ -273,6 +273,7 @@ module Variance : sig
   val null : t                          (* no occurrence *)
   val full : t                          (* strictly invariant *)
   val covariant : t                     (* strictly covariant *)
+  val contravariant : t                 (* strictly contravariant *)
   val may_inv : t                       (* maybe invariant *)
   val union  : t -> t -> t
   val inter  : t -> t -> t
@@ -458,7 +459,7 @@ and ext_status =
     Text_first                     (* first constructor in an extension *)
   | Text_next                      (* not first constructor in an extension *)
   | Text_exception
-
+  | Text_effect
 
 (* Constructor and record label descriptions inserted held in typing
    environments *)

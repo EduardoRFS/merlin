@@ -389,8 +389,8 @@ let rec tree_of_path namespace = function
       Oide_ident (Naming_context.pervasives_name namespace s)
   | Pdot(Pident t, s)
     when namespace=Type && not (Path.is_uident (Ident.name t)) ->
-    (* [t.A]: inline record of the constructor [A] from type [t] *)
-    Oide_dot (Oide_ident (ident_name Type t), s)
+      (* [t.A]: inline record of the constructor [A] from type [t] *)
+      Oide_dot (Oide_ident (ident_name Type t), s)
   | Pdot(p, s) ->
       Oide_dot (tree_of_path Module p, s)
   | Papply(p1, p2) ->
@@ -1249,6 +1249,7 @@ let tree_of_extension_constructor id ext es =
         Text_first -> Oext_first
       | Text_next -> Oext_next
       | Text_exception -> Oext_exception
+      | Text_effect -> Oext_effect
   in
     Osig_typext (ext, es)
 

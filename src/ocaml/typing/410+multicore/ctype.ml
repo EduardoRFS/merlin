@@ -159,7 +159,7 @@ module Unification_trace = struct
         | Some _ as m -> m
         | None -> explain rem in
     explain (List.rev trace)
-  
+
   let map_types f = map (map_desc f)
 end
 module Trace = Unification_trace
