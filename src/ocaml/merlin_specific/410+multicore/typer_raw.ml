@@ -84,6 +84,13 @@ module Rewrite_loc = struct
     let loc = if Location_aux.is_relaxed_location loc then loc else u_loc loc in
     (loc, u_payload payload)
 
+  and u_effect { peff_name = loc ; peff_kind; peff_loc; peff_attributes} =
+    let loc = if Location_aux.is_relaxed_location loc then loc else u_loc loc in
+    { peff_name = loc
+    ; peff_kind
+    ; peff_loc
+    ; peff_attributes}
+
   and u_attributes l = List.map ~f:u_attribute l
 
   and u_payload = function
@@ -152,6 +159,7 @@ module Rewrite_loc = struct
     | Ppat_record (fields, flag) -> Ppat_record (List.map ~f:(fun (l,p) -> (u_loc l, u_pattern p)) fields, flag)
     | Ppat_array ps -> Ppat_array (List.map ~f:u_pattern ps)
     | Ppat_or (p1, p2) -> Ppat_or (u_pattern p1, u_pattern p2)
+    | Ppat_effect (p1, p2) -> Ppat_effect (u_pattern p1, u_pattern p2)
     | Ppat_constraint (p, ct) -> Ppat_constraint (u_pattern p, u_core_type ct)
     | Ppat_type loc -> Ppat_type (u_loc loc)
     | Ppat_lazy p -> Ppat_lazy (u_pattern p)
@@ -449,6 +457,7 @@ module Rewrite_loc = struct
     | Psig_class_type cts -> Psig_class_type (List.map ~f:u_class_type_declaration cts)
     | Psig_attribute attr -> Psig_attribute (u_attribute attr)
     | Psig_extension (ext, attrs) -> Psig_extension (u_extension ext, u_attributes attrs)
+    | Psig_effect ef -> Psig_effect(u_effect ef)
     | Psig_typesubst tds -> Psig_typesubst (List.map ~f:u_type_declaration tds)
     | Psig_modsubst ms -> Psig_modsubst (u_module_substitution ms)
 
@@ -552,6 +561,7 @@ module Rewrite_loc = struct
     | Pstr_class_type ctds -> Pstr_class_type (List.map ~f:u_class_type_declaration ctds)
     | Pstr_include id -> Pstr_include (u_include_declaration id)
     | Pstr_attribute attr -> Pstr_attribute (u_attribute attr)
+    | Pstr_effect ef -> Pstr_effect (u_effect ef)
     | Pstr_extension (ext, attrs) -> Pstr_extension (u_extension ext, u_attributes attrs)
 
   and u_value_binding {pvb_pat; pvb_expr; pvb_attributes; pvb_loc} =

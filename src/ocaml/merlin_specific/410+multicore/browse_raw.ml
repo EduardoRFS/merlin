@@ -317,8 +317,8 @@ let of_expression_desc loc = function
         | (_,None) -> id_fold
         | (_,Some e) -> of_expression e)
       ls
-  | Texp_match (e,cs,_)
-  | Texp_try (e,cs) ->
+  | Texp_match (e,cs,_,_)
+  | Texp_try (e,cs,_) ->
     of_expression e **
     list_fold of_case cs
   | Texp_tuple es | Texp_construct (_,_,es) | Texp_array es ->
@@ -442,6 +442,8 @@ and of_structure_item_desc = function
     list_fold (fun x -> app (Module_binding x)) mbs
   | Tstr_modtype mtd ->
     app (Module_type_declaration mtd)
+  | Tstr_effect eff ->
+    app (Extension_constructor eff)
   | Tstr_class cds ->
     list_fold (fun (cd,_) -> app (Class_declaration cd)) cds
   | Tstr_class_type ctds ->
@@ -485,6 +487,8 @@ and of_signature_item_desc = function
     list_fold (fun md -> app (Module_declaration md)) mds
   | Tsig_modtype mtd ->
     app (Module_type_declaration mtd)
+  | Tsig_effect eff ->
+    app (Extension_constructor eff)
   | Tsig_include i ->
     app (Include_description i)
   | Tsig_class cds ->

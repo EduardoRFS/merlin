@@ -55,8 +55,8 @@ let expr_tail_positions = function
   | Texp_while _ | Texp_for _ | Texp_send _ | Texp_new _
   | Texp_unreachable | Texp_extension_constructor _ | Texp_letop _
     -> []
-  | Texp_match (_,cs,_)
-  | Texp_try (_,cs)
+  | Texp_match (_,cs,_,_)
+  | Texp_try (_,cs,_)
     -> List.map cs ~f:(fun c -> Case c)
   | Texp_letmodule (_,_,_,_,e) | Texp_letexception (_,e) | Texp_let (_,_,e)
   | Texp_sequence (_,e) | Texp_ifthenelse (_,e,None) | Texp_open (_, e)

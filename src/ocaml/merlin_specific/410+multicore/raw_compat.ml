@@ -160,7 +160,7 @@ let texp_function_cases = function
   | _ -> assert false
 
 let tmatch_scrutinee = function
-  | Typedtree.Texp_match (e, _, _) -> e
+  | Typedtree.Texp_match (e, _, _, _) -> e
   | _ -> assert false
 
 let const_string (s, o) = Asttypes.Const_string (s, o)
