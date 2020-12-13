@@ -41,7 +41,7 @@ type t = {
 let of_node ?(env=default_env) node =
   let rec one t_env t_node =
     let t_loc = Mbrowse.node_loc t_node in
-    let rec t = {t_node; t_env; t_loc; t_children = lazy (aux t)} in
+    let rec t = {t_node; t_env; t_loc; t_children = lazy []} in
     t
   and aux t =
     Mbrowse.fold_node (fun env node acc -> one env node :: acc)
