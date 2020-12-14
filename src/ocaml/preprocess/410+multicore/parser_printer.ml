@@ -116,7 +116,6 @@ let print_symbol = function
   | MenhirInterpreter.X (MenhirInterpreter.T MenhirInterpreter.T_EOF) -> "EOF"
   | MenhirInterpreter.X (MenhirInterpreter.T MenhirInterpreter.T_END) -> "end"
   | MenhirInterpreter.X (MenhirInterpreter.T MenhirInterpreter.T_ELSE) -> "else"
-  | MenhirInterpreter.X (MenhirInterpreter.T MenhirInterpreter.T_EFFECT) -> "effect"
   | MenhirInterpreter.X (MenhirInterpreter.T MenhirInterpreter.T_DOWNTO) -> "downto"
   | MenhirInterpreter.X (MenhirInterpreter.T MenhirInterpreter.T_DOTTILDE) -> ".~"
   | MenhirInterpreter.X (MenhirInterpreter.T MenhirInterpreter.T_DOTOP) -> "DOTOP"
@@ -311,8 +310,6 @@ let print_symbol = function
   | MenhirInterpreter.X (MenhirInterpreter.N MenhirInterpreter.N_extension) -> "extension"
   | MenhirInterpreter.X (MenhirInterpreter.N MenhirInterpreter.N_ext) -> "ext"
   | MenhirInterpreter.X (MenhirInterpreter.N MenhirInterpreter.N_expr) -> "expr"
-  | MenhirInterpreter.X (MenhirInterpreter.N MenhirInterpreter.N_effect_description) -> "effect_description"
-  | MenhirInterpreter.X (MenhirInterpreter.N MenhirInterpreter.N_effect) -> "effect"
   | MenhirInterpreter.X (MenhirInterpreter.N MenhirInterpreter.N_direction_flag) -> "direction_flag"
   | MenhirInterpreter.X (MenhirInterpreter.N MenhirInterpreter.N_core_type) -> "core_type"
   | MenhirInterpreter.X (MenhirInterpreter.N MenhirInterpreter.N_constructor_declarations) -> "constructor_declarations"
@@ -444,7 +441,6 @@ let print_value (type a) : a MenhirInterpreter.symbol -> a -> string = function
   | MenhirInterpreter.T MenhirInterpreter.T_EOF -> (fun _ -> "EOF")
   | MenhirInterpreter.T MenhirInterpreter.T_END -> (fun _ -> "end")
   | MenhirInterpreter.T MenhirInterpreter.T_ELSE -> (fun _ -> "else")
-  | MenhirInterpreter.T MenhirInterpreter.T_EFFECT -> (fun _ -> "effect")
   | MenhirInterpreter.T MenhirInterpreter.T_DOWNTO -> (fun _ -> "downto")
   | MenhirInterpreter.T MenhirInterpreter.T_DOTTILDE -> (fun _ -> ".~")
   | MenhirInterpreter.T MenhirInterpreter.T_DOTOP -> (fun _ -> "DOTOP")
@@ -639,8 +635,6 @@ let print_value (type a) : a MenhirInterpreter.symbol -> a -> string = function
   | MenhirInterpreter.N MenhirInterpreter.N_extension -> (fun _ -> "extension")
   | MenhirInterpreter.N MenhirInterpreter.N_ext -> (fun _ -> "ext")
   | MenhirInterpreter.N MenhirInterpreter.N_expr -> (fun _ -> "expr")
-  | MenhirInterpreter.N MenhirInterpreter.N_effect_description -> (fun _ -> "effect_description")
-  | MenhirInterpreter.N MenhirInterpreter.N_effect -> (fun _ -> "effect")
   | MenhirInterpreter.N MenhirInterpreter.N_direction_flag -> (fun _ -> "direction_flag")
   | MenhirInterpreter.N MenhirInterpreter.N_core_type -> (fun _ -> "core_type")
   | MenhirInterpreter.N MenhirInterpreter.N_constructor_declarations -> (fun _ -> "constructor_declarations")
@@ -771,7 +765,6 @@ let print_token = function
   | EOF -> print_value (MenhirInterpreter.T MenhirInterpreter.T_EOF) ()
   | END -> print_value (MenhirInterpreter.T MenhirInterpreter.T_END) ()
   | ELSE -> print_value (MenhirInterpreter.T MenhirInterpreter.T_ELSE) ()
-  | EFFECT -> print_value (MenhirInterpreter.T MenhirInterpreter.T_EFFECT) ()
   | DOWNTO -> print_value (MenhirInterpreter.T MenhirInterpreter.T_DOWNTO) ()
   | DOTTILDE -> print_value (MenhirInterpreter.T MenhirInterpreter.T_DOTTILDE) ()
   | DOTOP v -> print_value (MenhirInterpreter.T MenhirInterpreter.T_DOTOP) v
@@ -907,7 +900,6 @@ let token_of_terminal (type a) (t : a MenhirInterpreter.terminal) (v : a) : toke
   | MenhirInterpreter.T_EOF -> EOF
   | MenhirInterpreter.T_END -> END
   | MenhirInterpreter.T_ELSE -> ELSE
-  | MenhirInterpreter.T_EFFECT -> EFFECT
   | MenhirInterpreter.T_DOWNTO -> DOWNTO
   | MenhirInterpreter.T_DOTTILDE -> DOTTILDE
   | MenhirInterpreter.T_DOTOP -> DOTOP v

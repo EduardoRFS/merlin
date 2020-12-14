@@ -89,7 +89,6 @@ let keyword_table : keywords =
     "do", DO;
     "done", DONE;
     "downto", DOWNTO;
-    "effect", EFFECT;
     "else", ELSE;
     "end", END;
     "exception", EXCEPTION;
@@ -140,6 +139,10 @@ let keyword_table : keywords =
     "lsr", INFIXOP4("lsr");
     "asr", INFIXOP4("asr");
 ]
+
+let ocaml_keywords =
+  let l = lazy (Hashtbl.fold (fun k _ acc -> k :: acc) keyword_table []) in
+  fun () -> Lazy.force l
 
 let keywords l = create_hashtable 11 l
 

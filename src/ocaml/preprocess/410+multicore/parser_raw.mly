@@ -52,18 +52,12 @@ let mkstr ~loc d = Str.mk ~loc:(make_loc loc) d
 let mkclass ~loc ?attrs d = Cl.mk ~loc:(make_loc loc) ?attrs d
 let mkcty ~loc ?attrs d = Cty.mk ~loc:(make_loc loc) ?attrs d
 
-(*
- *Error: This expression has type value_description * string with_loc option
-        but an expression was expected of type effect_constructor
-        *)
 let pstr_typext (te, ext) =
   (Pstr_typext te, ext)
 let pstr_primitive (vd, ext) =
   (Pstr_primitive vd, ext)
 let pstr_type ((nr, ext), tys) =
   (Pstr_type (nr, tys), ext)
-let pstr_effect (ext) =
-  (Pstr_effect (ext))
 let pstr_exception (te, ext) =
   (Pstr_exception te, ext)
 let pstr_include (body, ext) =
@@ -680,7 +674,6 @@ let expr_of_lwt_bindings ~loc lbs body =
 %token DOTDOT [@symbol ".."]
 %token DOWNTO [@symbol "downto"]
 %token ELSE [@symbol "else"]
-%token EFFECT [@symbol "effect"]
 %token END [@symbol "end"]
 %token EOF
 %token EQUAL [@symbol "="]
@@ -826,7 +819,6 @@ The precedences must be listed from low to high.
 %nonassoc AND             /* above WITH (module rec A: SIG with ... and ...) */
 %nonassoc THEN                          /* below ELSE (if ... then ...) */
 %nonassoc ELSE                          /* (if ... then ... else ...) */
-%nonassoc EFFECT                        /*  is this correct? */
 %nonassoc LESSMINUS                     /* below COLONEQUAL (lbl <- x := e) */
 %right    COLONEQUAL                    /* expr (e := e := e) */
 %nonassoc AS
@@ -1400,8 +1392,6 @@ structure [@recovery []]:
         { pstr_recmodule $1 }
     | module_type_declaration
         { let (body, ext) = $1 in (Pstr_modtype body, ext) }
-    | effect_description
-        { let (body, ext) = $1 in (Pstr_effect body, ext)}
     | open_declaration
         { let (body, ext) = $1 in (Pstr_open body, ext) }
     | class_declarations
@@ -1649,10 +1639,6 @@ signature_item:
         { let (ext, l) = $1 in (Psig_recmodule l, ext) }
     | module_type_declaration
         { let (body, ext) = $1 in (Psig_modtype body, ext) }
-        (*
-    | effect_description
-        { let (body, ext) = $1 in (Psig_effect body, ext) }
-        *)
     | open_description
         { let (body, ext) = $1 in (Psig_open body, ext) }
     | include_statement(module_type)
@@ -1924,13 +1910,6 @@ class_field:
       { Pcf_attribute $1 })
       { $1 }
 ;
-
-effect:
-    no_override_flag
-    attrs = attributes
-    mutable_ = virtual_with_mutable_flag
-    label = mkrhs(label) COLON ty = core_type
-      { (label, mutable_, Cfk_virtual ty), attrs }
 value:
     no_override_flag
     attrs = attributes
@@ -1945,7 +1924,6 @@ value:
         ($4, $3, Cfk_concrete ($1, e)), $2
       }
 ;
-
 method_:
     no_override_flag
     attrs = attributes
@@ -2038,11 +2016,6 @@ class_sig_field:
     INHERIT attributes class_signature post_item_attributes
       { let docs = symbol_docs $sloc in
         mkctf ~loc:$sloc (Pctf_inherit $3) ~attrs:($2@$4) ~docs }
-      (*
-  | EFFECT attributes effect_type post_item_attributes
-      { let docs = symbol_docs $sloc in
-        mkctf ~loc:$sloc (Pctf_val $3) ~attrs:($2@$4) ~docs }
-      *)
   | VAL attributes value_type post_item_attributes
       { let docs = symbol_docs $sloc in
         mkctf ~loc:$sloc (Pctf_val $3) ~attrs:($2@$4) ~docs }
@@ -2071,18 +2044,6 @@ class_sig_field:
     label, mut, virt, ty
   }
 ;
-
-%inline effect_type:
-  flags = mutable_virtual_flags
-  label = mkrhs(label)
-  COLON
-  ty = core_type
-  {
-    let mut, virt = flags in
-    label, mut, virt, ty
-  }
-;
-
 %inline constrain:
     core_type EQUAL core_type
     { $1, $3, make_loc $sloc }
@@ -2880,8 +2841,6 @@ simple_pattern_not_ident:
     error
       { unclosed "(" $loc($1) ")" $loc($7) }
   *)
-  | effect
-      { Ppat_effect ($1, $2) }
   | extension
       { Ppat_extension $1 }
 ;
@@ -2937,22 +2896,6 @@ pattern_comma_list(self):
       label, mkpat_opt_constraint ~loc:$sloc pat octy
     }
 ;
-/* Effect descriptions */
-effect_description:
-  EFFECT
-  ext = ext
-  attrs1 = attributes
-  id = mkrhs(effect_ident)
-  COLON
-  ty = core_type
-  attrs2 = post_item_attributes
-    { let attrs = attrs1 @ attrs2 in
-      let loc = make_loc $sloc in
-      let docs = symbol_docs $sloc in
-      Val.mk id ty ~attrs ~loc ~docs,
-      ext }
-;
-
 
 /* Value descriptions */
 
@@ -2970,6 +2913,7 @@ value_description:
       Val.mk id ty ~attrs ~loc ~docs,
       ext }
 ;
+
 /* Primitive declarations */
 
 primitive_declaration:
@@ -3597,10 +3541,6 @@ ident:
 val_ident:
     LIDENT                    { $1 }
   | LPAREN operator RPAREN    { $2 }
-
-effect_ident:
-    LIDENT { $1 }
-  | LPAREN operator RPAREN { $2 }
   (*
   | LPAREN operator error     { unclosed "(" $loc($1) ")" $loc($3) }
   | LPAREN error              { expecting $loc($2) "operator" }
@@ -3660,7 +3600,6 @@ val_longident:
     val_ident                                   { Lident $1 }
   | mod_longident DOT val_ident                 { Ldot($1, $3) }
 ;
-
 constr_longident:
     mod_longident       %prec below_DOT         { $1 }
   | mod_longident DOT LPAREN COLONCOLON RPAREN  { Ldot($1,"::") }
@@ -3836,7 +3775,6 @@ single_attr_id:
   | DO { "do" }
   | DONE { "done" }
   | DOWNTO { "downto" }
-  | EFFECT { "effect" }
   | ELSE { "else" }
   | END { "end" }
   | EXCEPTION { "exception" }

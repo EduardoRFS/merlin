@@ -130,14 +130,6 @@ val some_private_tag : label
 (* Merlin specific *)
 (*******************)
 
-val complete_partial :
-  pred:((label, constructor_description) Hashtbl.t ->
-    (label, label_description) Hashtbl.t ->
-    Parsetree.pattern -> pattern option) ->
-  pattern list list ->
-  pattern option *
-    ((label, constructor_description) Hashtbl.t *
-    (label, label_description) Hashtbl.t)
-    option
+val complete_partial : pattern list list -> pattern option
 val return_unused: pattern list ->
   [ `Unused of pattern | `Unused_subs of pattern * pattern list ] list

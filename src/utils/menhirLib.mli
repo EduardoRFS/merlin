@@ -1066,11 +1066,19 @@ type 'a buffer
    which internally relies on [lexer] and updates [buffer] on the fly whenever
    a token is demanded. *)
 
+(* The type of the buffer is [(position * position) buffer], which means that
+   it stores two pairs of positions, which are the start and end positions of
+   the last two tokens. *)
+
 open Lexing
 
 val wrap:
   (lexbuf -> 'token) ->
   (position * position) buffer * (lexbuf -> 'token)
+
+val wrap_supplier:
+  (unit -> 'token * position * position) ->
+  (position * position) buffer * (unit -> 'token * position * position)
 
 (* [show f buffer] prints the contents of the buffer, producing a string that
    is typically of the form "after '%s' and before '%s'". The function [f] is
@@ -1084,6 +1092,76 @@ val show: ('a -> string) -> 'a buffer -> string
 val last: 'a buffer -> 'a
 
 (* -------------------------------------------------------------------------- *)
+
+(* [extract text (pos1, pos2)] extracts the sub-string of [text] delimited
+   by the positions [pos1] and [pos2]. *)
+
+val extract: string -> position * position -> string
+
+(* [sanitize text] eliminates any special characters from the text [text].
+   A special character is a character whose ASCII code is less than 32.
+   Every special character is replaced with a single space character. *)
+
+val sanitize: string -> string
+
+(* [compress text] replaces every run of at least one whitespace character
+   with exactly one space character. *)
+
+val compress: string -> string
+
+(* [shorten k text] limits the length of [text] to [2k+3] characters. If the
+   text is too long, a fragment in the middle is replaced with an ellipsis. *)
+
+val shorten: int -> string -> string
+
+(* [expand f text] searches [text] for occurrences of [$k], where [k]
+   is a nonnegative integer literal, and replaces each such occurrence
+   with the string [f k]. *)
+
+val expand: (int -> string) -> string -> string
+end
+module LexerUtil : sig
+(******************************************************************************)
+(*                                                                            *)
+(*                                   Menhir                                   *)
+(*                                                                            *)
+(*                       François Pottier, Inria Paris                        *)
+(*              Yann Régis-Gianas, PPS, Université Paris Diderot              *)
+(*                                                                            *)
+(*  Copyright Inria. All rights reserved. This file is distributed under the  *)
+(*  terms of the GNU Library General Public License version 2, with a         *)
+(*  special exception on linking, as described in the file LICENSE.           *)
+(*                                                                            *)
+(******************************************************************************)
+
+open Lexing
+
+(* [init filename lexbuf] initializes the lexing buffer [lexbuf] so
+   that the positions that are subsequently read from it refer to the
+   file [filename]. It returns [lexbuf]. *)
+
+val init: string -> lexbuf -> lexbuf
+
+(* [read filename] reads the entire contents of the file [filename] and
+   returns a pair of this content (a string) and a lexing buffer that
+   has been initialized, based on this string. *)
+
+val read: string -> string * lexbuf
+
+(* [newline lexbuf] increments the line counter stored within [lexbuf]. It
+   should be invoked by the lexer itself every time a newline character is
+   consumed. This allows maintaining a current the line number in [lexbuf]. *)
+
+val newline: lexbuf -> unit
+
+(* [range (startpos, endpos)] prints a textual description of the range
+   delimited by the start and end positions [startpos] and [endpos].
+   This description is one line long and ends in a newline character.
+   This description mentions the file name, the line number, and a range
+   of characters on this line. The line number is correct only if [newline]
+   has been correctly used, as described dabove. *)
+
+val range: position * position -> string
 end
 module Printers : sig
 (******************************************************************************)
@@ -1701,5 +1779,5 @@ module MakeEngineTable
      and type nonterminal = int
 end
 module StaticVersion : sig
-val require_20190924 : unit
+val require_20201201: unit
 end

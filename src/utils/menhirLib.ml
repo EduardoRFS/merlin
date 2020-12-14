@@ -43,7 +43,7 @@ let rec uniq1 cmp x ys =
       []
   | y :: ys ->
       if cmp x y = 0 then
-        uniq1 compare x ys
+        uniq1 cmp x ys
       else
         y :: uniq1 cmp y ys
 
@@ -85,7 +85,6 @@ let rec foldr f xs accu =
       accu
   | Cons (x, xs) ->
       f x (foldr f xs accu)
-
 end
 module Convert = struct
 (******************************************************************************)
@@ -1965,9 +1964,6 @@ let update buffer x =
     | Two (_, x1), x2 ->
         Two (x1, x2)
 
-(* [show f buffer] prints the contents of the buffer. The function [f] is
-   used to print an element. *)
-
 let show f buffer : string =
   match !buffer with
   | Zero ->
@@ -1981,9 +1977,6 @@ let show f buffer : string =
       (* In the most likely case, we have read two tokens. *)
       Printf.sprintf "after '%s' and before '%s'" (f valid) (f invalid)
 
-(* [last buffer] returns the last element of the buffer (that is, the invalid
-   token). *)
-
 let last buffer =
   match !buffer with
   | Zero ->
@@ -1993,8 +1986,6 @@ let last buffer =
   | One invalid
   | Two (_, invalid) ->
       invalid
-
-(* [wrap buffer lexer] *)
 
 open Lexing
 
@@ -2006,7 +1997,156 @@ let wrap lexer =
     update buffer (lexbuf.lex_start_p, lexbuf.lex_curr_p);
     token
 
+let wrap_supplier supplier =
+  let buffer = ref Zero in
+  buffer,
+  fun () ->
+    let (_token, pos1, pos2) as triple = supplier() in
+    update buffer (pos1, pos2);
+    triple
+
 (* -------------------------------------------------------------------------- *)
+
+let extract text (pos1, pos2) : string =
+  let ofs1 = pos1.pos_cnum
+  and ofs2 = pos2.pos_cnum in
+  let len = ofs2 - ofs1 in
+  try
+    String.sub text ofs1 len
+  with Invalid_argument _ ->
+    (* In principle, this should not happen, but if it does, let's make this
+       a non-fatal error. *)
+    "???"
+
+let sanitize text =
+  String.map (fun c ->
+    if Char.code c < 32 then ' ' else c
+  ) text
+
+(* If we were willing to depend on [Str], we could implement [compress] as
+   follows:
+
+   let compress text =
+     Str.global_replace (Str.regexp "[ \t\n\r]+") " " text
+
+ *)
+
+let rec compress n b i j skipping =
+  if j < n then
+    let c, j = Bytes.get b j, j + 1 in
+    match c with
+    | ' ' | '\t' | '\n' | '\r' ->
+        let i = if not skipping then (Bytes.set b i ' '; i + 1) else i in
+        let skipping = true in
+        compress n b i j skipping
+    | _ ->
+        let i = Bytes.set b i c; i + 1 in
+        let skipping = false in
+        compress n b i j skipping
+  else
+    Bytes.sub_string b 0 i
+
+let compress text =
+  let b = Bytes.of_string text in
+  let n = Bytes.length b in
+  compress n b 0 0 false
+
+let shorten k text =
+  let n = String.length text in
+  if n <= 2 * k + 3 then
+    text
+  else
+    String.sub text 0 k ^
+    "..." ^
+    String.sub text (n - k) k
+
+let is_digit c =
+  let c = Char.code c in
+  Char.code '0' <= c && c <= Char.code '9'
+
+exception Copy
+
+let expand f text =
+  let n = String.length text in
+  let b = Buffer.create n in
+  let rec loop i =
+    if i < n then begin
+      let c, i = text.[i], i + 1 in
+      loop (
+        try
+          if c <> '$' then raise Copy;
+          let j = ref i in
+          while !j < n && is_digit text.[!j] do incr j done;
+          if i = !j then raise Copy;
+          let k = int_of_string (String.sub text i (!j - i)) in
+          Buffer.add_string b (f k);
+          !j
+        with Copy ->
+          (* We reach this point if either [c] is not '$' or [c] is '$'
+             but is not followed by an integer literal. *)
+          Buffer.add_char b c;
+          i
+      )
+    end
+    else
+      Buffer.contents b
+  in
+  loop 0
+end
+module LexerUtil = struct
+(******************************************************************************)
+(*                                                                            *)
+(*                                   Menhir                                   *)
+(*                                                                            *)
+(*                       François Pottier, Inria Paris                        *)
+(*              Yann Régis-Gianas, PPS, Université Paris Diderot              *)
+(*                                                                            *)
+(*  Copyright Inria. All rights reserved. This file is distributed under the  *)
+(*  terms of the GNU Library General Public License version 2, with a         *)
+(*  special exception on linking, as described in the file LICENSE.           *)
+(*                                                                            *)
+(******************************************************************************)
+
+open Lexing
+open Printf
+
+let init filename lexbuf =
+  lexbuf.lex_curr_p <- {
+    pos_fname = filename;
+    pos_lnum  = 1;
+    pos_bol   = 0;
+    pos_cnum  = 0
+  };
+  lexbuf
+
+let read filename =
+  let c = open_in filename in
+  let text = really_input_string c (in_channel_length c) in
+  close_in c;
+  let lexbuf = Lexing.from_string text in
+  text, init filename lexbuf
+
+let newline lexbuf =
+  let pos = lexbuf.lex_curr_p in
+  lexbuf.lex_curr_p <- { pos with
+    pos_lnum = pos.pos_lnum + 1;
+    pos_bol = pos.pos_cnum;
+  }
+
+let is_dummy (pos1, pos2) =
+  pos1 == dummy_pos || pos2 == dummy_pos
+
+let range ((pos1, pos2) as range) =
+  if is_dummy range then
+    sprintf "At an unknown location:\n"
+  else
+    let file = pos1.pos_fname in
+    let line = pos1.pos_lnum in
+    let char1 = pos1.pos_cnum - pos1.pos_bol in
+    let char2 = pos2.pos_cnum - pos1.pos_bol in (* yes, [pos1.pos_bol] *)
+    sprintf "File \"%s\", line %d, characters %d-%d:\n"
+      file line char1 char2
+      (* use [char1 + 1] and [char2 + 1] if *not* using Caml mode *)
 end
 module Printers = struct
 (******************************************************************************)
@@ -3133,8 +3273,14 @@ module Make
   type item =
       int * int
 
+  let low_bits =
+    10
+
+  let low_limit =
+    1 lsl low_bits
+
   let export t : item =
-    (t lsr 7, t mod 128)
+    (t lsr low_bits, t mod low_limit)
 
   let items s =
     (* Map [s] to its LR(0) core. *)
@@ -3513,5 +3659,5 @@ module MakeEngineTable (T : TableFormat.TABLES) = struct
 end
 end
 module StaticVersion = struct
-let require_20190924 = ()
+let require_20201201 = ()
 end
